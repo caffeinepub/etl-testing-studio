@@ -543,6 +543,78 @@ actor {
     };
   };
 
+  // ─── Dataset Management ───────────────────────────────────────────────────────
+  public shared ({ caller }) func createDataset(subProjectId : SubProjectId, name : Text, datasetType : DatasetType) : async DatasetId {
+    ensureRegistered(caller);
+    let callerRecord = switch (userRecords.get(caller)) {
+      case (null) { Runtime.trap("Unauthorized") };
+      case (?r) { r };
+    };
+    switch (callerRecord.role) {
+      case (#masterAdmin or #admin or #etlTester) {};
+      case (_) { Runtime.trap("Unauthorized: Only Admin, Master Admin, or ETL Tester can create datasets") };
+    };
+    ignore getSubProjectInternal(caller, subProjectId);
+    let datasetId = nextDatasetId;
+    nextDatasetId += 1;
+    datasets.add(datasetId, {
+      id = datasetId;
+      subProjectId;
+      datasetType;
+      name;
+      createdAt = Time.now();
+      updatedAt = Time.now();
+    });
+    datasetId;
+  };
+
+  public query ({ caller }) func getDatasetsForSubProject(subProjectId : SubProjectId) : async [Dataset] {
+    ensureRegistered(caller);
+    ignore getSubProjectInternal(caller, subProjectId);
+    let list = List.empty<Dataset>();
+    for ((_, ds) in datasets.entries()) {
+      if (ds.subProjectId == subProjectId) { list.add(ds) };
+    };
+    let arr = list.toArray();
+    arr.sort(func(a : Dataset, b : Dataset) : Order.Order {
+      if (a.createdAt < b.createdAt) { #less } else if (a.createdAt > b.createdAt) { #greater } else { #equal }
+    });
+  };
+
+  public shared ({ caller }) func updateDataset(datasetId : DatasetId, name : Text) : async () {
+    ensureRegistered(caller);
+    let callerRecord = switch (userRecords.get(caller)) {
+      case (null) { Runtime.trap("Unauthorized") };
+      case (?r) { r };
+    };
+    switch (callerRecord.role) {
+      case (#masterAdmin or #admin or #etlTester) {};
+      case (_) { Runtime.trap("Unauthorized: Cannot edit datasets") };
+    };
+    switch (datasets.get(datasetId)) {
+      case (null) { Runtime.trap("Dataset not found") };
+      case (?ds) {
+        datasets.add(datasetId, { ds with name; updatedAt = Time.now() });
+      };
+    };
+  };
+
+  public shared ({ caller }) func deleteDataset(datasetId : DatasetId) : async () {
+    requireAdminOrMaster(caller);
+    switch (datasets.get(datasetId)) {
+      case (null) { Runtime.trap("Dataset not found") };
+      case (?_) {
+        // Check if any connections exist for this dataset
+        for ((_, conn) in connections.entries()) {
+          if (conn.datasetId == datasetId) {
+            Runtime.trap("Cannot delete dataset with existing connections");
+          };
+        };
+        datasets.remove(datasetId);
+      };
+    };
+  };
+
   // ─── Connection Management ────────────────────────────────────────────────────
   public shared ({ caller }) func addConnection(datasetId : DatasetId, connection : Connection) : async ConnectionId {
     ensureRegistered(caller);
@@ -646,4 +718,3 @@ actor {
     };
   };
 };
-

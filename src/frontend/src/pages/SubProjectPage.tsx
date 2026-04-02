@@ -24,7 +24,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
-import type { Project, SubProject } from "../backend";
+import type { Dataset, Project, SubProject } from "../backend";
 import { DatasetType } from "../backend";
 import { ComparisonPanel } from "../components/ComparisonPanel";
 import { DatasetPanel } from "../components/DatasetPanel";
@@ -70,12 +70,63 @@ export function SubProjectPage({ project, onBack }: Props) {
 
   const [selectedSub, setSelectedSub] = useState<SubProject | null>(null);
   const [datasetMap, setDatasetMap] = useState<DatasetMap>({});
+  const [activeTab, setActiveTab] = useState<string>("comparison");
+
+  // Add Dataset dialog state
+  const [addDatasetOpen, setAddDatasetOpen] = useState(false);
+  const [newDatasetName, setNewDatasetName] = useState("");
+  const [newDatasetType, setNewDatasetType] = useState<"source" | "target">(
+    "source",
+  );
 
   const { data: subProjects = [], isLoading } = useQuery({
     queryKey: ["subprojects", project.id.toString()],
     queryFn: () => actor!.getSubProjects(project.id),
     enabled: !!actor,
   });
+
+  // Fetch datasets for the selected sub-project
+  const { data: datasets = [], isLoading: datasetsLoading } = useQuery({
+    queryKey: ["datasets", selectedSub?.id.toString()],
+    queryFn: async (): Promise<Dataset[]> => {
+      if (!selectedSub || !actor) return [];
+      try {
+        const result = await (actor as any).getDatasetsForSubProject(
+          selectedSub.id,
+        );
+        if (Array.isArray(result) && result.length > 0) return result;
+      } catch {
+        // fall through to default
+      }
+      // Fallback: build Dataset objects from the two hardcoded IDs
+      const fallback: Dataset[] = [
+        {
+          id: selectedSub.sourceDataset,
+          subProjectId: selectedSub.id,
+          name: "Source Dataset",
+          datasetType: DatasetType.source,
+          createdAt: selectedSub.createdAt,
+          updatedAt: selectedSub.updatedAt,
+        },
+        {
+          id: selectedSub.targetDataset,
+          subProjectId: selectedSub.id,
+          name: "Target Dataset",
+          datasetType: DatasetType.target,
+          createdAt: selectedSub.createdAt,
+          updatedAt: selectedSub.updatedAt,
+        },
+      ];
+      return fallback;
+    },
+    enabled: !!actor && !!selectedSub,
+  });
+
+  // Sorted: SOURCE first, TARGET second
+  const sortedDatasets = [
+    ...datasets.filter((d) => d.datasetType === DatasetType.source),
+    ...datasets.filter((d) => d.datasetType === DatasetType.target),
+  ];
 
   const createMutation = useMutation({
     mutationFn: () => actor!.createSubProject(project.id, name, description),
@@ -98,7 +149,6 @@ export function SubProjectPage({ project, onBack }: Props) {
       queryClient.invalidateQueries({
         queryKey: ["subprojects", project.id.toString()],
       });
-      // Update selectedSub if it's the one being edited
       if (selectedSub && editTarget && selectedSub.id === editTarget.id) {
         setSelectedSub((prev) =>
           prev
@@ -125,14 +175,49 @@ export function SubProjectPage({ project, onBack }: Props) {
     onError: () => toast.error("Failed to update status"),
   });
 
-  const getOrCreateDatasetState = (
-    sub: SubProject,
-    type: "source" | "target",
-  ): DatasetState => {
-    const id = type === "source" ? sub.sourceDataset : sub.targetDataset;
-    const key = id.toString();
-    const dsType = type === "source" ? DatasetType.source : DatasetType.target;
-    return datasetMap[key] ?? makeEmptyDataset(id, dsType);
+  const addDatasetMutation = useMutation({
+    mutationFn: async () => {
+      if (!selectedSub || !actor) throw new Error("No sub-project selected");
+      const dsType =
+        newDatasetType === "source" ? { source: null } : { target: null };
+      const newId = await (actor as any).createDataset(
+        selectedSub.id,
+        newDatasetName,
+        dsType,
+      );
+      return newId as bigint;
+    },
+    onSuccess: (newId: bigint) => {
+      queryClient.invalidateQueries({
+        queryKey: ["datasets", selectedSub?.id.toString()],
+      });
+      setAddDatasetOpen(false);
+      setNewDatasetName("");
+      setNewDatasetType("source");
+      // Pre-initialise dataset state
+      const dsType =
+        newDatasetType === "source" ? DatasetType.source : DatasetType.target;
+      setDatasetMap((prev) => ({
+        ...prev,
+        [newId.toString()]: makeEmptyDataset(newId, dsType),
+      }));
+      setActiveTab(`dataset-${newId.toString()}`);
+      toast.success("Dataset created");
+    },
+    onError: () => toast.error("Failed to create dataset"),
+  });
+
+  const getDatasetState = (dataset: Dataset): DatasetState => {
+    const key = dataset.id.toString();
+    return (
+      datasetMap[key] ??
+      makeEmptyDataset(
+        dataset.id,
+        dataset.datasetType === DatasetType.source
+          ? DatasetType.source
+          : DatasetType.target,
+      )
+    );
   };
 
   const handleUpdateDataset = (updated: DatasetState) => {
@@ -150,6 +235,8 @@ export function SubProjectPage({ project, onBack }: Props) {
       [tgtKey]:
         prev[tgtKey] ?? makeEmptyDataset(sub.targetDataset, DatasetType.target),
     }));
+    // Default to first dataset tab
+    setActiveTab(`dataset-${sub.sourceDataset.toString()}`);
   };
 
   const openEdit = (sub: SubProject, e: React.MouseEvent) => {
@@ -159,6 +246,16 @@ export function SubProjectPage({ project, onBack }: Props) {
     setEditDescription(sub.description);
     setEditOpen(true);
   };
+
+  // Determine which source/target datasets to use for comparison/test cases
+  const defaultSourceDataset =
+    selectedSub &&
+    (datasetMap[selectedSub.sourceDataset.toString()] ??
+      makeEmptyDataset(selectedSub.sourceDataset, DatasetType.source));
+  const defaultTargetDataset =
+    selectedSub &&
+    (datasetMap[selectedSub.targetDataset.toString()] ??
+      makeEmptyDataset(selectedSub.targetDataset, DatasetType.target));
 
   return (
     <div className="flex flex-1 min-h-0">
@@ -326,73 +423,124 @@ export function SubProjectPage({ project, onBack }: Props) {
                 </p>
               </div>
             </div>
-            <Tabs defaultValue="source">
-              <TabsList className="mb-5">
-                <TabsTrigger value="source">Source Dataset</TabsTrigger>
-                <TabsTrigger value="target">Target Dataset</TabsTrigger>
-                <TabsTrigger value="comparison">Comparison</TabsTrigger>
-                <TabsTrigger value="testcases">Test Cases</TabsTrigger>
-              </TabsList>
 
-              <TabsContent value="source">
-                <div className="bg-card border border-border rounded-xl p-5">
-                  <DatasetPanel
-                    datasetState={getOrCreateDatasetState(
-                      selectedSub,
-                      "source",
-                    )}
-                    onUpdateDataset={handleUpdateDataset}
-                  />
-                </div>
-              </TabsContent>
+            {datasetsLoading ? (
+              <div
+                className="flex items-center justify-center py-16"
+                data-ocid="datasets.loading_state"
+              >
+                <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : (
+              <Tabs value={activeTab} onValueChange={setActiveTab}>
+                <div className="flex items-center gap-2 mb-5">
+                  <TabsList className="flex-wrap h-auto gap-1">
+                    {sortedDatasets.map((ds) => (
+                      <TabsTrigger
+                        key={ds.id.toString()}
+                        value={`dataset-${ds.id.toString()}`}
+                        data-ocid="dataset.tab"
+                        className="gap-1.5"
+                      >
+                        <span
+                          className={`w-1.5 h-1.5 rounded-full inline-block ${
+                            ds.datasetType === DatasetType.source
+                              ? "bg-blue-500"
+                              : "bg-amber-500"
+                          }`}
+                        />
+                        {ds.name}
+                      </TabsTrigger>
+                    ))}
+                    <TabsTrigger value="comparison" data-ocid="comparison.tab">
+                      Comparison
+                    </TabsTrigger>
+                    <TabsTrigger value="testcases" data-ocid="testcases.tab">
+                      Test Cases
+                    </TabsTrigger>
+                  </TabsList>
 
-              <TabsContent value="target">
-                <div className="bg-card border border-border rounded-xl p-5">
-                  <DatasetPanel
-                    datasetState={getOrCreateDatasetState(
-                      selectedSub,
-                      "target",
-                    )}
-                    onUpdateDataset={handleUpdateDataset}
-                  />
+                  {canEdit && (
+                    <Button
+                      size="icon"
+                      variant="outline"
+                      className="w-7 h-7 shrink-0"
+                      title="Add Dataset"
+                      onClick={() => setAddDatasetOpen(true)}
+                      data-ocid="dataset.open_modal_button"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                    </Button>
+                  )}
                 </div>
-              </TabsContent>
 
-              <TabsContent value="comparison">
-                <div className="bg-card border border-border rounded-xl p-5">
-                  <ComparisonPanel
-                    sourceDataset={getOrCreateDatasetState(
-                      selectedSub,
-                      "source",
-                    )}
-                    targetDataset={getOrCreateDatasetState(
-                      selectedSub,
-                      "target",
-                    )}
-                  />
-                </div>
-              </TabsContent>
+                {sortedDatasets.map((ds) => (
+                  <TabsContent
+                    key={ds.id.toString()}
+                    value={`dataset-${ds.id.toString()}`}
+                  >
+                    <div className="bg-card border border-border rounded-xl p-5">
+                      <div className="flex items-center gap-2 mb-4">
+                        <Badge
+                          variant="outline"
+                          className={`text-xs ${
+                            ds.datasetType === DatasetType.source
+                              ? "border-blue-400 text-blue-600"
+                              : "border-amber-400 text-amber-600"
+                          }`}
+                        >
+                          {ds.datasetType === DatasetType.source
+                            ? "SOURCE"
+                            : "TARGET"}
+                        </Badge>
+                        <span className="text-sm font-medium text-foreground">
+                          {ds.name}
+                        </span>
+                      </div>
+                      <DatasetPanel
+                        datasetState={getDatasetState(ds)}
+                        onUpdateDataset={handleUpdateDataset}
+                      />
+                    </div>
+                  </TabsContent>
+                ))}
 
-              <TabsContent value="testcases">
-                <div className="bg-card border border-border rounded-xl p-5">
-                  <TestCasesPanel
-                    sourceDataset={getOrCreateDatasetState(
-                      selectedSub,
-                      "source",
-                    )}
-                    targetDataset={getOrCreateDatasetState(
-                      selectedSub,
-                      "target",
-                    )}
-                  />
-                </div>
-              </TabsContent>
-            </Tabs>
+                <TabsContent value="comparison">
+                  <div className="bg-card border border-border rounded-xl p-5">
+                    <ComparisonPanel
+                      sourceDataset={
+                        defaultSourceDataset ||
+                        makeEmptyDataset(0n, DatasetType.source)
+                      }
+                      targetDataset={
+                        defaultTargetDataset ||
+                        makeEmptyDataset(1n, DatasetType.target)
+                      }
+                    />
+                  </div>
+                </TabsContent>
+
+                <TabsContent value="testcases">
+                  <div className="bg-card border border-border rounded-xl p-5">
+                    <TestCasesPanel
+                      sourceDataset={
+                        defaultSourceDataset ||
+                        makeEmptyDataset(0n, DatasetType.source)
+                      }
+                      targetDataset={
+                        defaultTargetDataset ||
+                        makeEmptyDataset(1n, DatasetType.target)
+                      }
+                    />
+                  </div>
+                </TabsContent>
+              </Tabs>
+            )}
           </div>
         )}
       </div>
 
-      {/* Create Dialog */}
+      {/* Create Sub-Project Dialog */}
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
@@ -405,6 +553,7 @@ export function SubProjectPage({ project, onBack }: Props) {
                 placeholder="e.g. Customer Data Validation"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
+                data-ocid="subproject.input"
               />
             </div>
             <div className="space-y-1.5">
@@ -414,16 +563,22 @@ export function SubProjectPage({ project, onBack }: Props) {
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 rows={3}
+                data-ocid="subproject.textarea"
               />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="ghost" onClick={() => setOpen(false)}>
+            <Button
+              variant="ghost"
+              onClick={() => setOpen(false)}
+              data-ocid="subproject.cancel_button"
+            >
               Cancel
             </Button>
             <Button
               onClick={() => createMutation.mutate()}
               disabled={!name.trim() || createMutation.isPending}
+              data-ocid="subproject.submit_button"
             >
               {createMutation.isPending ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -434,7 +589,7 @@ export function SubProjectPage({ project, onBack }: Props) {
         </DialogContent>
       </Dialog>
 
-      {/* Edit Dialog */}
+      {/* Edit Sub-Project Dialog */}
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
@@ -447,6 +602,7 @@ export function SubProjectPage({ project, onBack }: Props) {
                 placeholder="Sub-project name"
                 value={editName}
                 onChange={(e) => setEditName(e.target.value)}
+                data-ocid="edit_subproject.input"
               />
             </div>
             <div className="space-y-1.5">
@@ -456,6 +612,7 @@ export function SubProjectPage({ project, onBack }: Props) {
                 value={editDescription}
                 onChange={(e) => setEditDescription(e.target.value)}
                 rows={3}
+                data-ocid="edit_subproject.textarea"
               />
             </div>
           </div>
@@ -466,17 +623,97 @@ export function SubProjectPage({ project, onBack }: Props) {
                 setEditOpen(false);
                 setEditTarget(null);
               }}
+              data-ocid="edit_subproject.cancel_button"
             >
               Cancel
             </Button>
             <Button
               onClick={() => editMutation.mutate()}
               disabled={!editName.trim() || editMutation.isPending}
+              data-ocid="edit_subproject.submit_button"
             >
               {editMutation.isPending ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : null}
               Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Dataset Dialog */}
+      <Dialog open={addDatasetOpen} onOpenChange={setAddDatasetOpen}>
+        <DialogContent className="sm:max-w-md" data-ocid="dataset.dialog">
+          <DialogHeader>
+            <DialogTitle>Add Dataset</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label>Dataset Name</Label>
+              <Input
+                placeholder="e.g. Orders Source"
+                value={newDatasetName}
+                onChange={(e) => setNewDatasetName(e.target.value)}
+                data-ocid="dataset.input"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Dataset Type</Label>
+              <div className="flex gap-3">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="datasetType"
+                    value="source"
+                    checked={newDatasetType === "source"}
+                    onChange={() => setNewDatasetType("source")}
+                    data-ocid="dataset.radio"
+                    className="accent-primary"
+                  />
+                  <span className="text-sm">
+                    <span className="w-2 h-2 rounded-full bg-blue-500 inline-block mr-1" />
+                    Source
+                  </span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="datasetType"
+                    value="target"
+                    checked={newDatasetType === "target"}
+                    onChange={() => setNewDatasetType("target")}
+                    data-ocid="dataset.radio"
+                    className="accent-primary"
+                  />
+                  <span className="text-sm">
+                    <span className="w-2 h-2 rounded-full bg-amber-500 inline-block mr-1" />
+                    Target
+                  </span>
+                </label>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setAddDatasetOpen(false);
+                setNewDatasetName("");
+                setNewDatasetType("source");
+              }}
+              data-ocid="dataset.cancel_button"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => addDatasetMutation.mutate()}
+              disabled={!newDatasetName.trim() || addDatasetMutation.isPending}
+              data-ocid="dataset.submit_button"
+            >
+              {addDatasetMutation.isPending ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : null}
+              Add Dataset
             </Button>
           </DialogFooter>
         </DialogContent>
