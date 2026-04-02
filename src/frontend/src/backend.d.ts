@@ -34,13 +34,18 @@ export interface SubProject {
     sourceDataset: DatasetId;
     updatedAt: bigint;
     projectId: ProjectId;
+    isActive: boolean;
+}
+export interface TransformationOutput {
+    status: bigint;
+    body: Uint8Array;
+    headers: Array<http_header>;
 }
 export type SubProjectId = bigint;
 export interface MockData {
     rows: Array<Array<string>>;
     columns: Array<string>;
 }
-export type DatasetId = bigint;
 export interface JoinConfig {
     leftConnectionId: ConnectionId;
     joinType: JoinType;
@@ -48,6 +53,23 @@ export interface JoinConfig {
     rightKey: string;
     leftKey: string;
 }
+export interface UserRecord {
+    principal: Principal;
+    role: ETLRole;
+    isActive: boolean;
+    registeredAt: bigint;
+    registeredBy: Principal;
+}
+export interface http_request_result {
+    status: bigint;
+    body: Uint8Array;
+    headers: Array<http_header>;
+}
+export interface http_header {
+    value: string;
+    name: string;
+}
+export type DatasetId = bigint;
 export type ConnectionId = bigint;
 export interface Dataset {
     id: DatasetId;
@@ -57,6 +79,14 @@ export interface Dataset {
     updatedAt: bigint;
     datasetType: DatasetType;
 }
+export interface TransformationInput {
+    context: Uint8Array;
+    response: http_request_result;
+}
+export interface ConnectionTestResult {
+    ok: boolean;
+    message: string;
+}
 export type ProjectId = bigint;
 export interface Project {
     id: ProjectId;
@@ -64,6 +94,7 @@ export interface Project {
     name: string;
     createdAt: bigint;
     description: string;
+    isActive: boolean;
     updatedAt: bigint;
     subProjects: Array<SubProjectId>;
 }
@@ -81,6 +112,14 @@ export enum DbType {
     postgres = "postgres",
     sqlServer = "sqlServer",
     databricks = "databricks"
+}
+export enum ETLRole {
+    viewApiTester = "viewApiTester",
+    apiTester = "apiTester",
+    masterAdmin = "masterAdmin",
+    admin = "admin",
+    viewEtlTester = "viewEtlTester",
+    etlTester = "etlTester"
 }
 export enum FileType {
     csv = "csv",
@@ -114,17 +153,30 @@ export enum UserRole {
 export interface backendInterface {
     addConnection(datasetId: DatasetId, connection: Connection): Promise<ConnectionId>;
     assignCallerUserRole(user: Principal, role: UserRole): Promise<void>;
+    assignUserRole(user: Principal, role: ETLRole): Promise<void>;
     createProject(name: string, description: string): Promise<ProjectId>;
     createSubProject(projectId: ProjectId, name: string, description: string): Promise<SubProjectId>;
+    deleteConnection(connectionId: ConnectionId): Promise<void>;
     deleteProject(projectId: ProjectId): Promise<void>;
+    getAllUsers(): Promise<Array<UserRecord>>;
     getCallerUserRole(): Promise<UserRole>;
     getConnectionById(connectionId: ConnectionId): Promise<Connection | null>;
     getDatasetById(datasetId: DatasetId): Promise<Dataset | null>;
     getMockData(connectionId: ConnectionId): Promise<MockData | null>;
+    getMyRole(): Promise<UserRecord | null>;
     getProjects(): Promise<Array<Project>>;
     getSubProjects(projectId: ProjectId): Promise<Array<SubProject>>;
     isCallerAdmin(): Promise<boolean>;
+    registerUser(user: Principal, role: ETLRole): Promise<void>;
+    removeUser(user: Principal): Promise<void>;
     setFieldSelection(datasetId: DatasetId, fields: Array<string>): Promise<void>;
     setJoinConfig(datasetId: DatasetId, config: JoinConfig): Promise<void>;
     setOutputFormat(datasetId: DatasetId, format: OutputFormat): Promise<void>;
+    setUserActive(user: Principal, isActive: boolean): Promise<void>;
+    testDatabaseConnection(host: string): Promise<ConnectionTestResult>;
+    toggleProjectActive(projectId: ProjectId, isActive: boolean): Promise<void>;
+    toggleSubProjectActive(subProjectId: SubProjectId, isActive: boolean): Promise<void>;
+    transform(input: TransformationInput): Promise<TransformationOutput>;
+    updateProject(projectId: ProjectId, name: string, description: string): Promise<void>;
+    updateSubProject(subProjectId: SubProjectId, name: string, description: string): Promise<void>;
 }

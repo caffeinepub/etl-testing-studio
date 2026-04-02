@@ -116,13 +116,18 @@ export interface SubProject {
     sourceDataset: DatasetId;
     updatedAt: bigint;
     projectId: ProjectId;
+    isActive: boolean;
+}
+export interface TransformationOutput {
+    status: bigint;
+    body: Uint8Array;
+    headers: Array<http_header>;
 }
 export type SubProjectId = bigint;
 export interface MockData {
     rows: Array<Array<string>>;
     columns: Array<string>;
 }
-export type DatasetId = bigint;
 export interface JoinConfig {
     leftConnectionId: ConnectionId;
     joinType: JoinType;
@@ -130,6 +135,23 @@ export interface JoinConfig {
     rightKey: string;
     leftKey: string;
 }
+export interface UserRecord {
+    principal: Principal;
+    role: ETLRole;
+    isActive: boolean;
+    registeredAt: bigint;
+    registeredBy: Principal;
+}
+export interface http_request_result {
+    status: bigint;
+    body: Uint8Array;
+    headers: Array<http_header>;
+}
+export interface http_header {
+    value: string;
+    name: string;
+}
+export type DatasetId = bigint;
 export type ConnectionId = bigint;
 export interface Dataset {
     id: DatasetId;
@@ -139,6 +161,14 @@ export interface Dataset {
     updatedAt: bigint;
     datasetType: DatasetType;
 }
+export interface TransformationInput {
+    context: Uint8Array;
+    response: http_request_result;
+}
+export interface ConnectionTestResult {
+    ok: boolean;
+    message: string;
+}
 export type ProjectId = bigint;
 export interface Project {
     id: ProjectId;
@@ -146,6 +176,7 @@ export interface Project {
     name: string;
     createdAt: bigint;
     description: string;
+    isActive: boolean;
     updatedAt: bigint;
     subProjects: Array<SubProjectId>;
 }
@@ -163,6 +194,14 @@ export enum DbType {
     postgres = "postgres",
     sqlServer = "sqlServer",
     databricks = "databricks"
+}
+export enum ETLRole {
+    viewApiTester = "viewApiTester",
+    apiTester = "apiTester",
+    masterAdmin = "masterAdmin",
+    admin = "admin",
+    viewEtlTester = "viewEtlTester",
+    etlTester = "etlTester"
 }
 export enum FileType {
     csv = "csv",
@@ -197,21 +236,34 @@ export interface backendInterface {
     _initializeAccessControlWithSecret(userSecret: string): Promise<void>;
     addConnection(datasetId: DatasetId, connection: Connection): Promise<ConnectionId>;
     assignCallerUserRole(user: Principal, role: UserRole): Promise<void>;
+    assignUserRole(user: Principal, role: ETLRole): Promise<void>;
     createProject(name: string, description: string): Promise<ProjectId>;
     createSubProject(projectId: ProjectId, name: string, description: string): Promise<SubProjectId>;
+    deleteConnection(connectionId: ConnectionId): Promise<void>;
     deleteProject(projectId: ProjectId): Promise<void>;
+    getAllUsers(): Promise<Array<UserRecord>>;
     getCallerUserRole(): Promise<UserRole>;
     getConnectionById(connectionId: ConnectionId): Promise<Connection | null>;
     getDatasetById(datasetId: DatasetId): Promise<Dataset | null>;
     getMockData(connectionId: ConnectionId): Promise<MockData | null>;
+    getMyRole(): Promise<UserRecord | null>;
     getProjects(): Promise<Array<Project>>;
     getSubProjects(projectId: ProjectId): Promise<Array<SubProject>>;
     isCallerAdmin(): Promise<boolean>;
+    registerUser(user: Principal, role: ETLRole): Promise<void>;
+    removeUser(user: Principal): Promise<void>;
     setFieldSelection(datasetId: DatasetId, fields: Array<string>): Promise<void>;
     setJoinConfig(datasetId: DatasetId, config: JoinConfig): Promise<void>;
     setOutputFormat(datasetId: DatasetId, format: OutputFormat): Promise<void>;
+    setUserActive(user: Principal, isActive: boolean): Promise<void>;
+    testDatabaseConnection(host: string): Promise<ConnectionTestResult>;
+    toggleProjectActive(projectId: ProjectId, isActive: boolean): Promise<void>;
+    toggleSubProjectActive(subProjectId: SubProjectId, isActive: boolean): Promise<void>;
+    transform(input: TransformationInput): Promise<TransformationOutput>;
+    updateProject(projectId: ProjectId, name: string, description: string): Promise<void>;
+    updateSubProject(subProjectId: SubProjectId, name: string, description: string): Promise<void>;
 }
-import type { Connection as _Connection, ConnectionId as _ConnectionId, ConnectionType as _ConnectionType, Dataset as _Dataset, DatasetId as _DatasetId, DatasetType as _DatasetType, DbType as _DbType, FileType as _FileType, JoinConfig as _JoinConfig, JoinType as _JoinType, MockData as _MockData, OutputFormat as _OutputFormat, SourceLocation as _SourceLocation, SubProjectId as _SubProjectId, UserRole as _UserRole } from "./declarations/backend.did.d.ts";
+import type { Connection as _Connection, ConnectionId as _ConnectionId, ConnectionType as _ConnectionType, Dataset as _Dataset, DatasetId as _DatasetId, DatasetType as _DatasetType, DbType as _DbType, ETLRole as _ETLRole, FileType as _FileType, JoinConfig as _JoinConfig, JoinType as _JoinType, MockData as _MockData, OutputFormat as _OutputFormat, SourceLocation as _SourceLocation, SubProjectId as _SubProjectId, UserRecord as _UserRecord, UserRole as _UserRole } from "./declarations/backend.did.d.ts";
 export class Backend implements backendInterface {
     constructor(private actor: ActorSubclass<_SERVICE>, private _uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, private _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, private processError?: (error: unknown) => never){}
     async _initializeAccessControlWithSecret(arg0: string): Promise<void> {
@@ -256,6 +308,20 @@ export class Backend implements backendInterface {
             return result;
         }
     }
+    async assignUserRole(arg0: Principal, arg1: ETLRole): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.assignUserRole(arg0, to_candid_ETLRole_n13(this._uploadFile, this._downloadFile, arg1));
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.assignUserRole(arg0, to_candid_ETLRole_n13(this._uploadFile, this._downloadFile, arg1));
+            return result;
+        }
+    }
     async createProject(arg0: string, arg1: string): Promise<ProjectId> {
         if (this.processError) {
             try {
@@ -284,6 +350,20 @@ export class Backend implements backendInterface {
             return result;
         }
     }
+    async deleteConnection(arg0: ConnectionId): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.deleteConnection(arg0);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.deleteConnection(arg0);
+            return result;
+        }
+    }
     async deleteProject(arg0: ProjectId): Promise<void> {
         if (this.processError) {
             try {
@@ -298,60 +378,88 @@ export class Backend implements backendInterface {
             return result;
         }
     }
+    async getAllUsers(): Promise<Array<UserRecord>> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getAllUsers();
+                return from_candid_vec_n15(this._uploadFile, this._downloadFile, result);
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getAllUsers();
+            return from_candid_vec_n15(this._uploadFile, this._downloadFile, result);
+        }
+    }
     async getCallerUserRole(): Promise<UserRole> {
         if (this.processError) {
             try {
                 const result = await this.actor.getCallerUserRole();
-                return from_candid_UserRole_n13(this._uploadFile, this._downloadFile, result);
+                return from_candid_UserRole_n20(this._uploadFile, this._downloadFile, result);
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
             const result = await this.actor.getCallerUserRole();
-            return from_candid_UserRole_n13(this._uploadFile, this._downloadFile, result);
+            return from_candid_UserRole_n20(this._uploadFile, this._downloadFile, result);
         }
     }
     async getConnectionById(arg0: ConnectionId): Promise<Connection | null> {
         if (this.processError) {
             try {
                 const result = await this.actor.getConnectionById(arg0);
-                return from_candid_opt_n15(this._uploadFile, this._downloadFile, result);
+                return from_candid_opt_n22(this._uploadFile, this._downloadFile, result);
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
             const result = await this.actor.getConnectionById(arg0);
-            return from_candid_opt_n15(this._uploadFile, this._downloadFile, result);
+            return from_candid_opt_n22(this._uploadFile, this._downloadFile, result);
         }
     }
     async getDatasetById(arg0: DatasetId): Promise<Dataset | null> {
         if (this.processError) {
             try {
                 const result = await this.actor.getDatasetById(arg0);
-                return from_candid_opt_n31(this._uploadFile, this._downloadFile, result);
+                return from_candid_opt_n38(this._uploadFile, this._downloadFile, result);
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
             const result = await this.actor.getDatasetById(arg0);
-            return from_candid_opt_n31(this._uploadFile, this._downloadFile, result);
+            return from_candid_opt_n38(this._uploadFile, this._downloadFile, result);
         }
     }
     async getMockData(arg0: ConnectionId): Promise<MockData | null> {
         if (this.processError) {
             try {
                 const result = await this.actor.getMockData(arg0);
-                return from_candid_opt_n36(this._uploadFile, this._downloadFile, result);
+                return from_candid_opt_n43(this._uploadFile, this._downloadFile, result);
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
             const result = await this.actor.getMockData(arg0);
-            return from_candid_opt_n36(this._uploadFile, this._downloadFile, result);
+            return from_candid_opt_n43(this._uploadFile, this._downloadFile, result);
+        }
+    }
+    async getMyRole(): Promise<UserRecord | null> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getMyRole();
+                return from_candid_opt_n44(this._uploadFile, this._downloadFile, result);
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getMyRole();
+            return from_candid_opt_n44(this._uploadFile, this._downloadFile, result);
         }
     }
     async getProjects(): Promise<Array<Project>> {
@@ -396,6 +504,34 @@ export class Backend implements backendInterface {
             return result;
         }
     }
+    async registerUser(arg0: Principal, arg1: ETLRole): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.registerUser(arg0, to_candid_ETLRole_n13(this._uploadFile, this._downloadFile, arg1));
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.registerUser(arg0, to_candid_ETLRole_n13(this._uploadFile, this._downloadFile, arg1));
+            return result;
+        }
+    }
+    async removeUser(arg0: Principal): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.removeUser(arg0);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.removeUser(arg0);
+            return result;
+        }
+    }
     async setFieldSelection(arg0: DatasetId, arg1: Array<string>): Promise<void> {
         if (this.processError) {
             try {
@@ -413,81 +549,209 @@ export class Backend implements backendInterface {
     async setJoinConfig(arg0: DatasetId, arg1: JoinConfig): Promise<void> {
         if (this.processError) {
             try {
-                const result = await this.actor.setJoinConfig(arg0, to_candid_JoinConfig_n37(this._uploadFile, this._downloadFile, arg1));
+                const result = await this.actor.setJoinConfig(arg0, to_candid_JoinConfig_n45(this._uploadFile, this._downloadFile, arg1));
                 return result;
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
-            const result = await this.actor.setJoinConfig(arg0, to_candid_JoinConfig_n37(this._uploadFile, this._downloadFile, arg1));
+            const result = await this.actor.setJoinConfig(arg0, to_candid_JoinConfig_n45(this._uploadFile, this._downloadFile, arg1));
             return result;
         }
     }
     async setOutputFormat(arg0: DatasetId, arg1: OutputFormat): Promise<void> {
         if (this.processError) {
             try {
-                const result = await this.actor.setOutputFormat(arg0, to_candid_OutputFormat_n41(this._uploadFile, this._downloadFile, arg1));
+                const result = await this.actor.setOutputFormat(arg0, to_candid_OutputFormat_n49(this._uploadFile, this._downloadFile, arg1));
                 return result;
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
-            const result = await this.actor.setOutputFormat(arg0, to_candid_OutputFormat_n41(this._uploadFile, this._downloadFile, arg1));
+            const result = await this.actor.setOutputFormat(arg0, to_candid_OutputFormat_n49(this._uploadFile, this._downloadFile, arg1));
+            return result;
+        }
+    }
+    async setUserActive(arg0: Principal, arg1: boolean): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.setUserActive(arg0, arg1);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.setUserActive(arg0, arg1);
+            return result;
+        }
+    }
+    async testDatabaseConnection(arg0: string): Promise<ConnectionTestResult> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.testDatabaseConnection(arg0);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.testDatabaseConnection(arg0);
+            return result;
+        }
+    }
+    async toggleProjectActive(arg0: ProjectId, arg1: boolean): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.toggleProjectActive(arg0, arg1);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.toggleProjectActive(arg0, arg1);
+            return result;
+        }
+    }
+    async transform(arg0: TransformationInput): Promise<TransformationOutput> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.transform(arg0);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.transform(arg0);
+            return result;
+        }
+    }
+    async updateProject(arg0: ProjectId, arg1: string, arg2: string): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.updateProject(arg0, arg1, arg2);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.updateProject(arg0, arg1, arg2);
+            return result;
+        }
+    }
+    async toggleSubProjectActive(arg0: SubProjectId, arg1: boolean): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await (this.actor as any).toggleSubProjectActive(arg0, arg1);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await (this.actor as any).toggleSubProjectActive(arg0, arg1);
+            return result;
+        }
+    }
+    async updateSubProject(arg0: SubProjectId, arg1: string, arg2: string): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await (this.actor as any).updateSubProject(arg0, arg1, arg2);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await (this.actor as any).updateSubProject(arg0, arg1, arg2);
             return result;
         }
     }
 }
-function from_candid_ConnectionType_n26(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _ConnectionType): ConnectionType {
-    return from_candid_variant_n27(_uploadFile, _downloadFile, value);
+function from_candid_ConnectionType_n33(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _ConnectionType): ConnectionType {
+    return from_candid_variant_n34(_uploadFile, _downloadFile, value);
 }
-function from_candid_Connection_n16(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _Connection): Connection {
+function from_candid_Connection_n23(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _Connection): Connection {
+    return from_candid_record_n24(_uploadFile, _downloadFile, value);
+}
+function from_candid_DatasetType_n41(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _DatasetType): DatasetType {
+    return from_candid_variant_n42(_uploadFile, _downloadFile, value);
+}
+function from_candid_Dataset_n39(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _Dataset): Dataset {
+    return from_candid_record_n40(_uploadFile, _downloadFile, value);
+}
+function from_candid_DbType_n36(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _DbType): DbType {
+    return from_candid_variant_n37(_uploadFile, _downloadFile, value);
+}
+function from_candid_ETLRole_n18(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _ETLRole): ETLRole {
+    return from_candid_variant_n19(_uploadFile, _downloadFile, value);
+}
+function from_candid_FileType_n28(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _FileType): FileType {
+    return from_candid_variant_n29(_uploadFile, _downloadFile, value);
+}
+function from_candid_SourceLocation_n31(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _SourceLocation): SourceLocation {
+    return from_candid_variant_n32(_uploadFile, _downloadFile, value);
+}
+function from_candid_UserRecord_n16(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _UserRecord): UserRecord {
     return from_candid_record_n17(_uploadFile, _downloadFile, value);
 }
-function from_candid_DatasetType_n34(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _DatasetType): DatasetType {
-    return from_candid_variant_n35(_uploadFile, _downloadFile, value);
+function from_candid_UserRole_n20(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _UserRole): UserRole {
+    return from_candid_variant_n21(_uploadFile, _downloadFile, value);
 }
-function from_candid_Dataset_n32(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _Dataset): Dataset {
-    return from_candid_record_n33(_uploadFile, _downloadFile, value);
+function from_candid_opt_n22(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [_Connection]): Connection | null {
+    return value.length === 0 ? null : from_candid_Connection_n23(_uploadFile, _downloadFile, value[0]);
 }
-function from_candid_DbType_n29(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _DbType): DbType {
-    return from_candid_variant_n30(_uploadFile, _downloadFile, value);
-}
-function from_candid_FileType_n21(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _FileType): FileType {
-    return from_candid_variant_n22(_uploadFile, _downloadFile, value);
-}
-function from_candid_SourceLocation_n24(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _SourceLocation): SourceLocation {
-    return from_candid_variant_n25(_uploadFile, _downloadFile, value);
-}
-function from_candid_UserRole_n13(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _UserRole): UserRole {
-    return from_candid_variant_n14(_uploadFile, _downloadFile, value);
-}
-function from_candid_opt_n15(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [_Connection]): Connection | null {
-    return value.length === 0 ? null : from_candid_Connection_n16(_uploadFile, _downloadFile, value[0]);
-}
-function from_candid_opt_n18(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [string]): string | null {
+function from_candid_opt_n25(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [string]): string | null {
     return value.length === 0 ? null : value[0];
 }
-function from_candid_opt_n19(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [bigint]): bigint | null {
+function from_candid_opt_n26(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [bigint]): bigint | null {
     return value.length === 0 ? null : value[0];
 }
-function from_candid_opt_n20(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [_FileType]): FileType | null {
-    return value.length === 0 ? null : from_candid_FileType_n21(_uploadFile, _downloadFile, value[0]);
+function from_candid_opt_n27(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [_FileType]): FileType | null {
+    return value.length === 0 ? null : from_candid_FileType_n28(_uploadFile, _downloadFile, value[0]);
 }
-function from_candid_opt_n23(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [_SourceLocation]): SourceLocation | null {
-    return value.length === 0 ? null : from_candid_SourceLocation_n24(_uploadFile, _downloadFile, value[0]);
+function from_candid_opt_n30(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [_SourceLocation]): SourceLocation | null {
+    return value.length === 0 ? null : from_candid_SourceLocation_n31(_uploadFile, _downloadFile, value[0]);
 }
-function from_candid_opt_n28(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [_DbType]): DbType | null {
-    return value.length === 0 ? null : from_candid_DbType_n29(_uploadFile, _downloadFile, value[0]);
+function from_candid_opt_n35(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [_DbType]): DbType | null {
+    return value.length === 0 ? null : from_candid_DbType_n36(_uploadFile, _downloadFile, value[0]);
 }
-function from_candid_opt_n31(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [_Dataset]): Dataset | null {
-    return value.length === 0 ? null : from_candid_Dataset_n32(_uploadFile, _downloadFile, value[0]);
+function from_candid_opt_n38(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [_Dataset]): Dataset | null {
+    return value.length === 0 ? null : from_candid_Dataset_n39(_uploadFile, _downloadFile, value[0]);
 }
-function from_candid_opt_n36(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [_MockData]): MockData | null {
+function from_candid_opt_n43(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [_MockData]): MockData | null {
     return value.length === 0 ? null : value[0];
+}
+function from_candid_opt_n44(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [_UserRecord]): UserRecord | null {
+    return value.length === 0 ? null : from_candid_UserRecord_n16(_uploadFile, _downloadFile, value[0]);
 }
 function from_candid_record_n17(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
+    principal: Principal;
+    role: _ETLRole;
+    isActive: boolean;
+    registeredAt: bigint;
+    registeredBy: Principal;
+}): {
+    principal: Principal;
+    role: ETLRole;
+    isActive: boolean;
+    registeredAt: bigint;
+    registeredBy: Principal;
+} {
+    return {
+        principal: value.principal,
+        role: from_candid_ETLRole_n18(_uploadFile, _downloadFile, value.role),
+        isActive: value.isActive,
+        registeredAt: value.registeredAt,
+        registeredBy: value.registeredBy
+    };
+}
+function from_candid_record_n24(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
     id: _ConnectionId;
     username: [] | [string];
     datasetId: _DatasetId;
@@ -524,24 +788,24 @@ function from_candid_record_n17(_uploadFile: (file: ExternalBlob) => Promise<Uin
 } {
     return {
         id: value.id,
-        username: record_opt_to_undefined(from_candid_opt_n18(_uploadFile, _downloadFile, value.username)),
+        username: record_opt_to_undefined(from_candid_opt_n25(_uploadFile, _downloadFile, value.username)),
         datasetId: value.datasetId,
-        host: record_opt_to_undefined(from_candid_opt_n18(_uploadFile, _downloadFile, value.host)),
-        password: record_opt_to_undefined(from_candid_opt_n18(_uploadFile, _downloadFile, value.password)),
+        host: record_opt_to_undefined(from_candid_opt_n25(_uploadFile, _downloadFile, value.host)),
+        password: record_opt_to_undefined(from_candid_opt_n25(_uploadFile, _downloadFile, value.password)),
         name: value.name,
         createdAt: value.createdAt,
-        port: record_opt_to_undefined(from_candid_opt_n19(_uploadFile, _downloadFile, value.port)),
-        filePath: record_opt_to_undefined(from_candid_opt_n18(_uploadFile, _downloadFile, value.filePath)),
-        fileType: record_opt_to_undefined(from_candid_opt_n20(_uploadFile, _downloadFile, value.fileType)),
-        sourceLocation: record_opt_to_undefined(from_candid_opt_n23(_uploadFile, _downloadFile, value.sourceLocation)),
-        connectionType: from_candid_ConnectionType_n26(_uploadFile, _downloadFile, value.connectionType),
+        port: record_opt_to_undefined(from_candid_opt_n26(_uploadFile, _downloadFile, value.port)),
+        filePath: record_opt_to_undefined(from_candid_opt_n25(_uploadFile, _downloadFile, value.filePath)),
+        fileType: record_opt_to_undefined(from_candid_opt_n27(_uploadFile, _downloadFile, value.fileType)),
+        sourceLocation: record_opt_to_undefined(from_candid_opt_n30(_uploadFile, _downloadFile, value.sourceLocation)),
+        connectionType: from_candid_ConnectionType_n33(_uploadFile, _downloadFile, value.connectionType),
         updatedAt: value.updatedAt,
-        dbName: record_opt_to_undefined(from_candid_opt_n18(_uploadFile, _downloadFile, value.dbName)),
-        dbType: record_opt_to_undefined(from_candid_opt_n28(_uploadFile, _downloadFile, value.dbType)),
-        tableName: record_opt_to_undefined(from_candid_opt_n18(_uploadFile, _downloadFile, value.tableName))
+        dbName: record_opt_to_undefined(from_candid_opt_n25(_uploadFile, _downloadFile, value.dbName)),
+        dbType: record_opt_to_undefined(from_candid_opt_n35(_uploadFile, _downloadFile, value.dbType)),
+        tableName: record_opt_to_undefined(from_candid_opt_n25(_uploadFile, _downloadFile, value.tableName))
     };
 }
-function from_candid_record_n33(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
+function from_candid_record_n40(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
     id: _DatasetId;
     subProjectId: _SubProjectId;
     name: string;
@@ -562,10 +826,25 @@ function from_candid_record_n33(_uploadFile: (file: ExternalBlob) => Promise<Uin
         name: value.name,
         createdAt: value.createdAt,
         updatedAt: value.updatedAt,
-        datasetType: from_candid_DatasetType_n34(_uploadFile, _downloadFile, value.datasetType)
+        datasetType: from_candid_DatasetType_n41(_uploadFile, _downloadFile, value.datasetType)
     };
 }
-function from_candid_variant_n14(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
+function from_candid_variant_n19(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
+    viewApiTester: null;
+} | {
+    apiTester: null;
+} | {
+    masterAdmin: null;
+} | {
+    admin: null;
+} | {
+    viewEtlTester: null;
+} | {
+    etlTester: null;
+}): ETLRole {
+    return "viewApiTester" in value ? ETLRole.viewApiTester : "apiTester" in value ? ETLRole.apiTester : "masterAdmin" in value ? ETLRole.masterAdmin : "admin" in value ? ETLRole.admin : "viewEtlTester" in value ? ETLRole.viewEtlTester : "etlTester" in value ? ETLRole.etlTester : value;
+}
+function from_candid_variant_n21(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
     admin: null;
 } | {
     user: null;
@@ -574,7 +853,7 @@ function from_candid_variant_n14(_uploadFile: (file: ExternalBlob) => Promise<Ui
 }): UserRole {
     return "admin" in value ? UserRole.admin : "user" in value ? UserRole.user : "guest" in value ? UserRole.guest : value;
 }
-function from_candid_variant_n22(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
+function from_candid_variant_n29(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
     csv: null;
 } | {
     xml: null;
@@ -587,7 +866,7 @@ function from_candid_variant_n22(_uploadFile: (file: ExternalBlob) => Promise<Ui
 }): FileType {
     return "csv" in value ? FileType.csv : "xml" in value ? FileType.xml : "json" in value ? FileType.json : "fixedWidth" in value ? FileType.fixedWidth : "parquet" in value ? FileType.parquet : value;
 }
-function from_candid_variant_n25(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
+function from_candid_variant_n32(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
     azureBlob: null;
 } | {
     network: null;
@@ -596,14 +875,14 @@ function from_candid_variant_n25(_uploadFile: (file: ExternalBlob) => Promise<Ui
 }): SourceLocation {
     return "azureBlob" in value ? SourceLocation.azureBlob : "network" in value ? SourceLocation.network : "local" in value ? SourceLocation.local : value;
 }
-function from_candid_variant_n27(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
+function from_candid_variant_n34(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
     file: null;
 } | {
     database: null;
 }): ConnectionType {
     return "file" in value ? ConnectionType.file : "database" in value ? ConnectionType.database : value;
 }
-function from_candid_variant_n30(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
+function from_candid_variant_n37(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
     db2: null;
 } | {
     mySql: null;
@@ -616,12 +895,15 @@ function from_candid_variant_n30(_uploadFile: (file: ExternalBlob) => Promise<Ui
 }): DbType {
     return "db2" in value ? DbType.db2 : "mySql" in value ? DbType.mySql : "postgres" in value ? DbType.postgres : "sqlServer" in value ? DbType.sqlServer : "databricks" in value ? DbType.databricks : value;
 }
-function from_candid_variant_n35(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
+function from_candid_variant_n42(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
     source: null;
 } | {
     target: null;
 }): DatasetType {
     return "source" in value ? DatasetType.source : "target" in value ? DatasetType.target : value;
+}
+function from_candid_vec_n15(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: Array<_UserRecord>): Array<UserRecord> {
+    return value.map((x)=>from_candid_UserRecord_n16(_uploadFile, _downloadFile, x));
 }
 function to_candid_ConnectionType_n7(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: ConnectionType): _ConnectionType {
     return to_candid_variant_n8(_uploadFile, _downloadFile, value);
@@ -632,17 +914,20 @@ function to_candid_Connection_n1(_uploadFile: (file: ExternalBlob) => Promise<Ui
 function to_candid_DbType_n9(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: DbType): _DbType {
     return to_candid_variant_n10(_uploadFile, _downloadFile, value);
 }
+function to_candid_ETLRole_n13(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: ETLRole): _ETLRole {
+    return to_candid_variant_n14(_uploadFile, _downloadFile, value);
+}
 function to_candid_FileType_n3(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: FileType): _FileType {
     return to_candid_variant_n4(_uploadFile, _downloadFile, value);
 }
-function to_candid_JoinConfig_n37(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: JoinConfig): _JoinConfig {
-    return to_candid_record_n38(_uploadFile, _downloadFile, value);
+function to_candid_JoinConfig_n45(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: JoinConfig): _JoinConfig {
+    return to_candid_record_n46(_uploadFile, _downloadFile, value);
 }
-function to_candid_JoinType_n39(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: JoinType): _JoinType {
-    return to_candid_variant_n40(_uploadFile, _downloadFile, value);
+function to_candid_JoinType_n47(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: JoinType): _JoinType {
+    return to_candid_variant_n48(_uploadFile, _downloadFile, value);
 }
-function to_candid_OutputFormat_n41(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: OutputFormat): _OutputFormat {
-    return to_candid_variant_n42(_uploadFile, _downloadFile, value);
+function to_candid_OutputFormat_n49(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: OutputFormat): _OutputFormat {
+    return to_candid_variant_n50(_uploadFile, _downloadFile, value);
 }
 function to_candid_SourceLocation_n5(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: SourceLocation): _SourceLocation {
     return to_candid_variant_n6(_uploadFile, _downloadFile, value);
@@ -704,7 +989,7 @@ function to_candid_record_n2(_uploadFile: (file: ExternalBlob) => Promise<Uint8A
         tableName: value.tableName ? candid_some(value.tableName) : candid_none()
     };
 }
-function to_candid_record_n38(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
+function to_candid_record_n46(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
     leftConnectionId: ConnectionId;
     joinType: JoinType;
     rightConnectionId: ConnectionId;
@@ -719,7 +1004,7 @@ function to_candid_record_n38(_uploadFile: (file: ExternalBlob) => Promise<Uint8
 } {
     return {
         leftConnectionId: value.leftConnectionId,
-        joinType: to_candid_JoinType_n39(_uploadFile, _downloadFile, value.joinType),
+        joinType: to_candid_JoinType_n47(_uploadFile, _downloadFile, value.joinType),
         rightConnectionId: value.rightConnectionId,
         rightKey: value.rightKey,
         leftKey: value.leftKey
@@ -763,6 +1048,33 @@ function to_candid_variant_n12(_uploadFile: (file: ExternalBlob) => Promise<Uint
         guest: null
     } : value;
 }
+function to_candid_variant_n14(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: ETLRole): {
+    viewApiTester: null;
+} | {
+    apiTester: null;
+} | {
+    masterAdmin: null;
+} | {
+    admin: null;
+} | {
+    viewEtlTester: null;
+} | {
+    etlTester: null;
+} {
+    return value == ETLRole.viewApiTester ? {
+        viewApiTester: null
+    } : value == ETLRole.apiTester ? {
+        apiTester: null
+    } : value == ETLRole.masterAdmin ? {
+        masterAdmin: null
+    } : value == ETLRole.admin ? {
+        admin: null
+    } : value == ETLRole.viewEtlTester ? {
+        viewEtlTester: null
+    } : value == ETLRole.etlTester ? {
+        etlTester: null
+    } : value;
+}
 function to_candid_variant_n4(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: FileType): {
     csv: null;
 } | {
@@ -786,7 +1098,7 @@ function to_candid_variant_n4(_uploadFile: (file: ExternalBlob) => Promise<Uint8
         parquet: null
     } : value;
 }
-function to_candid_variant_n40(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: JoinType): {
+function to_candid_variant_n48(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: JoinType): {
     full: null;
 } | {
     left: null;
@@ -805,7 +1117,7 @@ function to_candid_variant_n40(_uploadFile: (file: ExternalBlob) => Promise<Uint
         right: null
     } : value;
 }
-function to_candid_variant_n42(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: OutputFormat): {
+function to_candid_variant_n50(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: OutputFormat): {
     csv: null;
 } | {
     xml: null;

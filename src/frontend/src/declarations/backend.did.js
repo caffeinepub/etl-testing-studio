@@ -56,8 +56,23 @@ export const UserRole = IDL.Variant({
   'user' : IDL.Null,
   'guest' : IDL.Null,
 });
+export const ETLRole = IDL.Variant({
+  'viewApiTester' : IDL.Null,
+  'apiTester' : IDL.Null,
+  'masterAdmin' : IDL.Null,
+  'admin' : IDL.Null,
+  'viewEtlTester' : IDL.Null,
+  'etlTester' : IDL.Null,
+});
 export const ProjectId = IDL.Nat;
 export const SubProjectId = IDL.Nat;
+export const UserRecord = IDL.Record({
+  'principal' : IDL.Principal,
+  'role' : ETLRole,
+  'isActive' : IDL.Bool,
+  'registeredAt' : IDL.Int,
+  'registeredBy' : IDL.Principal,
+});
 export const DatasetType = IDL.Variant({
   'source' : IDL.Null,
   'target' : IDL.Null,
@@ -80,6 +95,7 @@ export const Project = IDL.Record({
   'name' : IDL.Text,
   'createdAt' : IDL.Int,
   'description' : IDL.Text,
+  'isActive' : IDL.Bool,
   'updatedAt' : IDL.Int,
   'subProjects' : IDL.Vec(SubProjectId),
 });
@@ -112,18 +128,43 @@ export const OutputFormat = IDL.Variant({
   'json' : IDL.Null,
   'parquet' : IDL.Null,
 });
+export const ConnectionTestResult = IDL.Record({
+  'ok' : IDL.Bool,
+  'message' : IDL.Text,
+});
+export const http_header = IDL.Record({
+  'value' : IDL.Text,
+  'name' : IDL.Text,
+});
+export const http_request_result = IDL.Record({
+  'status' : IDL.Nat,
+  'body' : IDL.Vec(IDL.Nat8),
+  'headers' : IDL.Vec(http_header),
+});
+export const TransformationInput = IDL.Record({
+  'context' : IDL.Vec(IDL.Nat8),
+  'response' : http_request_result,
+});
+export const TransformationOutput = IDL.Record({
+  'status' : IDL.Nat,
+  'body' : IDL.Vec(IDL.Nat8),
+  'headers' : IDL.Vec(http_header),
+});
 
 export const idlService = IDL.Service({
   '_initializeAccessControlWithSecret' : IDL.Func([IDL.Text], [], []),
   'addConnection' : IDL.Func([DatasetId, Connection], [ConnectionId], []),
   'assignCallerUserRole' : IDL.Func([IDL.Principal, UserRole], [], []),
+  'assignUserRole' : IDL.Func([IDL.Principal, ETLRole], [], []),
   'createProject' : IDL.Func([IDL.Text, IDL.Text], [ProjectId], []),
   'createSubProject' : IDL.Func(
       [ProjectId, IDL.Text, IDL.Text],
       [SubProjectId],
       [],
     ),
+  'deleteConnection' : IDL.Func([ConnectionId], [], []),
   'deleteProject' : IDL.Func([ProjectId], [], []),
+  'getAllUsers' : IDL.Func([], [IDL.Vec(UserRecord)], ['query']),
   'getCallerUserRole' : IDL.Func([], [UserRole], ['query']),
   'getConnectionById' : IDL.Func(
       [ConnectionId],
@@ -132,12 +173,24 @@ export const idlService = IDL.Service({
     ),
   'getDatasetById' : IDL.Func([DatasetId], [IDL.Opt(Dataset)], ['query']),
   'getMockData' : IDL.Func([ConnectionId], [IDL.Opt(MockData)], ['query']),
+  'getMyRole' : IDL.Func([], [IDL.Opt(UserRecord)], []),
   'getProjects' : IDL.Func([], [IDL.Vec(Project)], ['query']),
   'getSubProjects' : IDL.Func([ProjectId], [IDL.Vec(SubProject)], ['query']),
   'isCallerAdmin' : IDL.Func([], [IDL.Bool], ['query']),
+  'registerUser' : IDL.Func([IDL.Principal, ETLRole], [], []),
+  'removeUser' : IDL.Func([IDL.Principal], [], []),
   'setFieldSelection' : IDL.Func([DatasetId, IDL.Vec(IDL.Text)], [], []),
   'setJoinConfig' : IDL.Func([DatasetId, JoinConfig], [], []),
   'setOutputFormat' : IDL.Func([DatasetId, OutputFormat], [], []),
+  'setUserActive' : IDL.Func([IDL.Principal, IDL.Bool], [], []),
+  'testDatabaseConnection' : IDL.Func([IDL.Text], [ConnectionTestResult], []),
+  'toggleProjectActive' : IDL.Func([ProjectId, IDL.Bool], [], []),
+  'transform' : IDL.Func(
+      [TransformationInput],
+      [TransformationOutput],
+      ['query'],
+    ),
+  'updateProject' : IDL.Func([ProjectId, IDL.Text, IDL.Text], [], []),
 });
 
 export const idlInitArgs = [];
@@ -191,8 +244,23 @@ export const idlFactory = ({ IDL }) => {
     'user' : IDL.Null,
     'guest' : IDL.Null,
   });
+  const ETLRole = IDL.Variant({
+    'viewApiTester' : IDL.Null,
+    'apiTester' : IDL.Null,
+    'masterAdmin' : IDL.Null,
+    'admin' : IDL.Null,
+    'viewEtlTester' : IDL.Null,
+    'etlTester' : IDL.Null,
+  });
   const ProjectId = IDL.Nat;
   const SubProjectId = IDL.Nat;
+  const UserRecord = IDL.Record({
+    'principal' : IDL.Principal,
+    'role' : ETLRole,
+    'isActive' : IDL.Bool,
+    'registeredAt' : IDL.Int,
+    'registeredBy' : IDL.Principal,
+  });
   const DatasetType = IDL.Variant({ 'source' : IDL.Null, 'target' : IDL.Null });
   const Dataset = IDL.Record({
     'id' : DatasetId,
@@ -212,6 +280,7 @@ export const idlFactory = ({ IDL }) => {
     'name' : IDL.Text,
     'createdAt' : IDL.Int,
     'description' : IDL.Text,
+    'isActive' : IDL.Bool,
     'updatedAt' : IDL.Int,
     'subProjects' : IDL.Vec(SubProjectId),
   });
@@ -244,18 +313,40 @@ export const idlFactory = ({ IDL }) => {
     'json' : IDL.Null,
     'parquet' : IDL.Null,
   });
+  const ConnectionTestResult = IDL.Record({
+    'ok' : IDL.Bool,
+    'message' : IDL.Text,
+  });
+  const http_header = IDL.Record({ 'value' : IDL.Text, 'name' : IDL.Text });
+  const http_request_result = IDL.Record({
+    'status' : IDL.Nat,
+    'body' : IDL.Vec(IDL.Nat8),
+    'headers' : IDL.Vec(http_header),
+  });
+  const TransformationInput = IDL.Record({
+    'context' : IDL.Vec(IDL.Nat8),
+    'response' : http_request_result,
+  });
+  const TransformationOutput = IDL.Record({
+    'status' : IDL.Nat,
+    'body' : IDL.Vec(IDL.Nat8),
+    'headers' : IDL.Vec(http_header),
+  });
   
   return IDL.Service({
     '_initializeAccessControlWithSecret' : IDL.Func([IDL.Text], [], []),
     'addConnection' : IDL.Func([DatasetId, Connection], [ConnectionId], []),
     'assignCallerUserRole' : IDL.Func([IDL.Principal, UserRole], [], []),
+    'assignUserRole' : IDL.Func([IDL.Principal, ETLRole], [], []),
     'createProject' : IDL.Func([IDL.Text, IDL.Text], [ProjectId], []),
     'createSubProject' : IDL.Func(
         [ProjectId, IDL.Text, IDL.Text],
         [SubProjectId],
         [],
       ),
+    'deleteConnection' : IDL.Func([ConnectionId], [], []),
     'deleteProject' : IDL.Func([ProjectId], [], []),
+    'getAllUsers' : IDL.Func([], [IDL.Vec(UserRecord)], ['query']),
     'getCallerUserRole' : IDL.Func([], [UserRole], ['query']),
     'getConnectionById' : IDL.Func(
         [ConnectionId],
@@ -264,12 +355,24 @@ export const idlFactory = ({ IDL }) => {
       ),
     'getDatasetById' : IDL.Func([DatasetId], [IDL.Opt(Dataset)], ['query']),
     'getMockData' : IDL.Func([ConnectionId], [IDL.Opt(MockData)], ['query']),
+    'getMyRole' : IDL.Func([], [IDL.Opt(UserRecord)], []),
     'getProjects' : IDL.Func([], [IDL.Vec(Project)], ['query']),
     'getSubProjects' : IDL.Func([ProjectId], [IDL.Vec(SubProject)], ['query']),
     'isCallerAdmin' : IDL.Func([], [IDL.Bool], ['query']),
+    'registerUser' : IDL.Func([IDL.Principal, ETLRole], [], []),
+    'removeUser' : IDL.Func([IDL.Principal], [], []),
     'setFieldSelection' : IDL.Func([DatasetId, IDL.Vec(IDL.Text)], [], []),
     'setJoinConfig' : IDL.Func([DatasetId, JoinConfig], [], []),
     'setOutputFormat' : IDL.Func([DatasetId, OutputFormat], [], []),
+    'setUserActive' : IDL.Func([IDL.Principal, IDL.Bool], [], []),
+    'testDatabaseConnection' : IDL.Func([IDL.Text], [ConnectionTestResult], []),
+    'toggleProjectActive' : IDL.Func([ProjectId, IDL.Bool], [], []),
+    'transform' : IDL.Func(
+        [TransformationInput],
+        [TransformationOutput],
+        ['query'],
+      ),
+    'updateProject' : IDL.Func([ProjectId, IDL.Text, IDL.Text], [], []),
   });
 };
 

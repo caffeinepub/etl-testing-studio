@@ -18,11 +18,47 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { compareData } from "../lib/comparison";
-import type { ComparisonResult, DatasetState } from "../types/etl";
+import { applyMetadataFormatting } from "../lib/formatUtils";
+import type {
+  ComparisonResult,
+  DatasetState,
+  MockDataResult,
+} from "../types/etl";
 
 interface Props {
   sourceDataset: DatasetState;
   targetDataset: DatasetState;
+}
+
+function getDataForDataset(dataset: DatasetState): MockDataResult | null {
+  const allData = dataset.connections
+    .map((conn) => {
+      const key = conn.id.toString();
+      const raw = dataset.fullDataMap?.[key] ?? dataset.mockDataMap[key];
+      if (!raw) return null;
+
+      const selEntries = dataset.fieldSelectionMap?.[key];
+      if (!selEntries || selEntries.length === 0) return raw;
+
+      const selectedEntries = selEntries.filter((e) => e.selected);
+      if (selectedEntries.length === 0) return raw;
+
+      const newColumns = selectedEntries.map((e) => e.alias || e.originalName);
+      const newRows = raw.rows.map((row) =>
+        selectedEntries.map((e) => {
+          const idx = raw.columns.indexOf(e.originalName);
+          return idx >= 0 ? row[idx] : "";
+        }),
+      );
+      return { columns: newColumns, rows: newRows };
+    })
+    .filter(Boolean) as MockDataResult[];
+
+  if (allData.length === 0) return null;
+  return {
+    columns: allData[0].columns,
+    rows: allData.flatMap((d) => d.rows),
+  };
 }
 
 export function ComparisonPanel({ sourceDataset, targetDataset }: Props) {
@@ -30,28 +66,25 @@ export function ComparisonPanel({ sourceDataset, targetDataset }: Props) {
   const [running, setRunning] = useState(false);
 
   const handleRun = async () => {
-    const srcMocks = Object.values(sourceDataset.mockDataMap);
-    const tgtMocks = Object.values(targetDataset.mockDataMap);
+    const srcData = getDataForDataset(sourceDataset);
+    const tgtData = getDataForDataset(targetDataset);
 
-    if (srcMocks.length === 0 || tgtMocks.length === 0) {
+    if (!srcData || !tgtData) {
       alert(
         "Please view data for at least one source and one target connection first.",
       );
       return;
     }
 
+    // Apply metadata format transformations before comparison
+    const srcMetadata = Object.values(sourceDataset.metadataMap).flat();
+    const tgtMetadata = Object.values(targetDataset.metadataMap).flat();
+    const transformedSrc = applyMetadataFormatting(srcData, srcMetadata);
+    const transformedTgt = applyMetadataFormatting(tgtData, tgtMetadata);
+
     setRunning(true);
     await new Promise((r) => setTimeout(r, 600));
-    // Merge all mock data from source and target
-    const srcMerged = {
-      columns: srcMocks[0].columns,
-      rows: srcMocks.flatMap((m) => m.rows),
-    };
-    const tgtMerged = {
-      columns: tgtMocks[0].columns,
-      rows: tgtMocks.flatMap((m) => m.rows),
-    };
-    setResult(compareData(srcMerged, tgtMerged));
+    setResult(compareData(transformedSrc, transformedTgt));
     setRunning(false);
   };
 
@@ -71,6 +104,7 @@ export function ComparisonPanel({ sourceDataset, targetDataset }: Props) {
           onClick={handleRun}
           disabled={running}
           className="gap-1.5"
+          data-ocid="comparison.run.button"
         >
           {running ? (
             <Loader2 className="w-4 h-4 animate-spin" />
@@ -82,9 +116,12 @@ export function ComparisonPanel({ sourceDataset, targetDataset }: Props) {
       </div>
 
       {!result && !running && (
-        <div className="flex flex-col items-center justify-center h-40 border border-dashed border-border rounded-xl">
+        <div
+          className="flex flex-col items-center justify-center h-40 border border-dashed border-border rounded-xl"
+          data-ocid="comparison.empty_state"
+        >
           <p className="text-sm text-muted-foreground">
-            Click "Run Comparison" to start
+            Click &quot;Run Comparison&quot; to start
           </p>
           <p className="text-xs text-muted-foreground mt-1">
             Make sure you have viewed data in both source and target connections
@@ -144,7 +181,7 @@ export function ComparisonPanel({ sourceDataset, targetDataset }: Props) {
               Field-by-Field Validation
             </h4>
             <div className="rounded-lg border border-border overflow-hidden">
-              <Table>
+              <Table data-ocid="comparison.table">
                 <TableHeader>
                   <TableRow>
                     <TableHead className="text-xs">Field</TableHead>

@@ -1,3 +1,4 @@
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -12,7 +13,15 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronLeft, FolderKanban, Loader2, Plus } from "lucide-react";
+import {
+  ChevronLeft,
+  FolderKanban,
+  Loader2,
+  Pencil,
+  Plus,
+  PowerOff,
+  Zap,
+} from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import type { Project, SubProject } from "../backend";
@@ -20,6 +29,7 @@ import { DatasetType } from "../backend";
 import { ComparisonPanel } from "../components/ComparisonPanel";
 import { DatasetPanel } from "../components/DatasetPanel";
 import { TestCasesPanel } from "../components/TestCasesPanel";
+import { useRole } from "../context/RoleContext";
 import { useActor } from "../hooks/useActor";
 import type { DatasetState } from "../types/etl";
 
@@ -37,15 +47,27 @@ function makeEmptyDataset(id: bigint, type: DatasetType): DatasetState {
     connections: [],
     selectedFields: [],
     mockDataMap: {},
+    csvHeadersMap: {},
+    fullDataMap: {},
+    metadataMap: {},
+    fieldSelectionMap: {},
   };
 }
 
 export function SubProjectPage({ project, onBack }: Props) {
   const { actor } = useActor();
   const queryClient = useQueryClient();
+  const { isAdmin, canEdit } = useRole();
+
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+
+  const [editOpen, setEditOpen] = useState(false);
+  const [editTarget, setEditTarget] = useState<SubProject | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+
   const [selectedSub, setSelectedSub] = useState<SubProject | null>(null);
   const [datasetMap, setDatasetMap] = useState<DatasetMap>({});
 
@@ -67,6 +89,40 @@ export function SubProjectPage({ project, onBack }: Props) {
       toast.success("Sub-project created");
     },
     onError: () => toast.error("Failed to create sub-project"),
+  });
+
+  const editMutation = useMutation({
+    mutationFn: () =>
+      actor!.updateSubProject(editTarget!.id, editName, editDescription),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["subprojects", project.id.toString()],
+      });
+      // Update selectedSub if it's the one being edited
+      if (selectedSub && editTarget && selectedSub.id === editTarget.id) {
+        setSelectedSub((prev) =>
+          prev
+            ? { ...prev, name: editName, description: editDescription }
+            : prev,
+        );
+      }
+      setEditOpen(false);
+      setEditTarget(null);
+      toast.success("Sub-project updated");
+    },
+    onError: () => toast.error("Failed to update sub-project"),
+  });
+
+  const toggleActiveMutation = useMutation({
+    mutationFn: ({ id, isActive }: { id: bigint; isActive: boolean }) =>
+      actor!.toggleSubProjectActive(id, isActive),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["subprojects", project.id.toString()],
+      });
+      toast.success("Sub-project status updated");
+    },
+    onError: () => toast.error("Failed to update status"),
   });
 
   const getOrCreateDatasetState = (
@@ -96,6 +152,14 @@ export function SubProjectPage({ project, onBack }: Props) {
     }));
   };
 
+  const openEdit = (sub: SubProject, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditTarget(sub);
+    setEditName(sub.name);
+    setEditDescription(sub.description);
+    setEditOpen(true);
+  };
+
   return (
     <div className="flex flex-1 min-h-0">
       {/* Sidebar */}
@@ -122,15 +186,17 @@ export function SubProjectPage({ project, onBack }: Props) {
             <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
               Sub-Projects
             </span>
-            <Button
-              type="button"
-              size="icon"
-              variant="ghost"
-              className="w-5 h-5"
-              onClick={() => setOpen(true)}
-            >
-              <Plus className="w-3.5 h-3.5" />
-            </Button>
+            {canEdit && (
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                className="w-5 h-5"
+                onClick={() => setOpen(true)}
+              >
+                <Plus className="w-3.5 h-3.5" />
+              </Button>
+            )}
           </div>
         </div>
         <ScrollArea className="flex-1">
@@ -145,21 +211,75 @@ export function SubProjectPage({ project, onBack }: Props) {
               </p>
             ) : (
               subProjects.map((sub) => (
-                <button
-                  type="button"
+                <div
                   key={sub.id.toString()}
-                  onClick={() => handleSelectSub(sub)}
-                  className={`w-full text-left px-3 py-2 rounded-md text-sm transition-colors ${
+                  className={`rounded-md transition-colors ${
                     selectedSub?.id === sub.id
-                      ? "bg-accent text-accent-foreground"
-                      : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                      ? "bg-accent"
+                      : "hover:bg-accent/50"
                   }`}
                 >
-                  <div className="flex items-center gap-2">
-                    <FolderKanban className="w-3.5 h-3.5 shrink-0" />
-                    <span className="truncate">{sub.name}</span>
-                  </div>
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSelectSub(sub)}
+                    className="w-full text-left px-3 py-2 text-sm"
+                  >
+                    <div className="flex items-center gap-2">
+                      <FolderKanban className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
+                      <span
+                        className={`truncate flex-1 ${
+                          selectedSub?.id === sub.id
+                            ? "text-accent-foreground"
+                            : "text-muted-foreground"
+                        }`}
+                      >
+                        {sub.name}
+                      </span>
+                    </div>
+                    <div className="mt-1 pl-5 flex items-center gap-1">
+                      <Badge
+                        variant={sub.isActive ? "default" : "secondary"}
+                        className="text-[10px] px-1.5 py-0 h-4"
+                      >
+                        {sub.isActive ? "Active" : "Inactive"}
+                      </Badge>
+                    </div>
+                  </button>
+                  {canEdit && (
+                    <div className="flex items-center gap-0.5 px-2 pb-1.5">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="w-5 h-5"
+                        title="Edit sub-project"
+                        onClick={(e) => openEdit(sub, e)}
+                      >
+                        <Pencil className="w-3 h-3" />
+                      </Button>
+                      {isAdmin && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="w-5 h-5"
+                          title={sub.isActive ? "Deactivate" : "Activate"}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleActiveMutation.mutate({
+                              id: sub.id,
+                              isActive: !sub.isActive,
+                            });
+                          }}
+                        >
+                          {sub.isActive ? (
+                            <PowerOff className="w-3 h-3 text-destructive" />
+                          ) : (
+                            <Zap className="w-3 h-3 text-green-600" />
+                          )}
+                        </Button>
+                      )}
+                    </div>
+                  )}
+                </div>
               ))
             )}
           </div>
@@ -174,25 +294,37 @@ export function SubProjectPage({ project, onBack }: Props) {
             <p className="text-sm text-muted-foreground">
               Select a sub-project to get started
             </p>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => setOpen(true)}
-              className="gap-1.5"
-            >
-              <Plus className="w-4 h-4" />
-              New Sub-Project
-            </Button>
+            {canEdit && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setOpen(true)}
+                className="gap-1.5"
+              >
+                <Plus className="w-4 h-4" />
+                New Sub-Project
+              </Button>
+            )}
           </div>
         ) : (
           <div className="p-6">
-            <div className="mb-5">
-              <h2 className="text-lg font-semibold text-foreground">
-                {selectedSub.name}
-              </h2>
-              <p className="text-sm text-muted-foreground mt-0.5">
-                {selectedSub.description}
-              </p>
+            <div className="mb-5 flex items-start justify-between">
+              <div>
+                <div className="flex items-center gap-2">
+                  <h2 className="text-lg font-semibold text-foreground">
+                    {selectedSub.name}
+                  </h2>
+                  <Badge
+                    variant={selectedSub.isActive ? "default" : "secondary"}
+                    className="text-xs"
+                  >
+                    {selectedSub.isActive ? "Active" : "Inactive"}
+                  </Badge>
+                </div>
+                <p className="text-sm text-muted-foreground mt-0.5">
+                  {selectedSub.description}
+                </p>
+              </div>
             </div>
             <Tabs defaultValue="source">
               <TabsList className="mb-5">
@@ -260,6 +392,7 @@ export function SubProjectPage({ project, onBack }: Props) {
         )}
       </div>
 
+      {/* Create Dialog */}
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
@@ -296,6 +429,54 @@ export function SubProjectPage({ project, onBack }: Props) {
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : null}
               Create
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Dialog */}
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit Sub-Project</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label>Sub-Project Name</Label>
+              <Input
+                placeholder="Sub-project name"
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Description</Label>
+              <Textarea
+                placeholder="Description..."
+                value={editDescription}
+                onChange={(e) => setEditDescription(e.target.value)}
+                rows={3}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setEditOpen(false);
+                setEditTarget(null);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => editMutation.mutate()}
+              disabled={!editName.trim() || editMutation.isPending}
+            >
+              {editMutation.isPending ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : null}
+              Save
             </Button>
           </DialogFooter>
         </DialogContent>

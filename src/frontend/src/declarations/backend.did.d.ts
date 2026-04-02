@@ -29,6 +29,7 @@ export interface Connection {
   'tableName' : [] | [string],
 }
 export type ConnectionId = bigint;
+export interface ConnectionTestResult { 'ok' : boolean, 'message' : string }
 export type ConnectionType = { 'file' : null } |
   { 'database' : null };
 export interface Dataset {
@@ -47,6 +48,12 @@ export type DbType = { 'db2' : null } |
   { 'postgres' : null } |
   { 'sqlServer' : null } |
   { 'databricks' : null };
+export type ETLRole = { 'viewApiTester' : null } |
+  { 'apiTester' : null } |
+  { 'masterAdmin' : null } |
+  { 'admin' : null } |
+  { 'viewEtlTester' : null } |
+  { 'etlTester' : null };
 export type FileType = { 'csv' : null } |
   { 'xml' : null } |
   { 'json' : null } |
@@ -77,6 +84,7 @@ export interface Project {
   'name' : string,
   'createdAt' : bigint,
   'description' : string,
+  'isActive' : boolean,
   'updatedAt' : bigint,
   'subProjects' : Array<SubProjectId>,
 }
@@ -95,26 +103,59 @@ export interface SubProject {
   'projectId' : ProjectId,
 }
 export type SubProjectId = bigint;
+export interface TransformationInput {
+  'context' : Uint8Array,
+  'response' : http_request_result,
+}
+export interface TransformationOutput {
+  'status' : bigint,
+  'body' : Uint8Array,
+  'headers' : Array<http_header>,
+}
+export interface UserRecord {
+  'principal' : Principal,
+  'role' : ETLRole,
+  'isActive' : boolean,
+  'registeredAt' : bigint,
+  'registeredBy' : Principal,
+}
 export type UserRole = { 'admin' : null } |
   { 'user' : null } |
   { 'guest' : null };
+export interface http_header { 'value' : string, 'name' : string }
+export interface http_request_result {
+  'status' : bigint,
+  'body' : Uint8Array,
+  'headers' : Array<http_header>,
+}
 export interface _SERVICE {
   '_initializeAccessControlWithSecret' : ActorMethod<[string], undefined>,
   'addConnection' : ActorMethod<[DatasetId, Connection], ConnectionId>,
   'assignCallerUserRole' : ActorMethod<[Principal, UserRole], undefined>,
+  'assignUserRole' : ActorMethod<[Principal, ETLRole], undefined>,
   'createProject' : ActorMethod<[string, string], ProjectId>,
   'createSubProject' : ActorMethod<[ProjectId, string, string], SubProjectId>,
+  'deleteConnection' : ActorMethod<[ConnectionId], undefined>,
   'deleteProject' : ActorMethod<[ProjectId], undefined>,
+  'getAllUsers' : ActorMethod<[], Array<UserRecord>>,
   'getCallerUserRole' : ActorMethod<[], UserRole>,
   'getConnectionById' : ActorMethod<[ConnectionId], [] | [Connection]>,
   'getDatasetById' : ActorMethod<[DatasetId], [] | [Dataset]>,
   'getMockData' : ActorMethod<[ConnectionId], [] | [MockData]>,
+  'getMyRole' : ActorMethod<[], [] | [UserRecord]>,
   'getProjects' : ActorMethod<[], Array<Project>>,
   'getSubProjects' : ActorMethod<[ProjectId], Array<SubProject>>,
   'isCallerAdmin' : ActorMethod<[], boolean>,
+  'registerUser' : ActorMethod<[Principal, ETLRole], undefined>,
+  'removeUser' : ActorMethod<[Principal], undefined>,
   'setFieldSelection' : ActorMethod<[DatasetId, Array<string>], undefined>,
   'setJoinConfig' : ActorMethod<[DatasetId, JoinConfig], undefined>,
   'setOutputFormat' : ActorMethod<[DatasetId, OutputFormat], undefined>,
+  'setUserActive' : ActorMethod<[Principal, boolean], undefined>,
+  'testDatabaseConnection' : ActorMethod<[string], ConnectionTestResult>,
+  'toggleProjectActive' : ActorMethod<[ProjectId, boolean], undefined>,
+  'transform' : ActorMethod<[TransformationInput], TransformationOutput>,
+  'updateProject' : ActorMethod<[ProjectId, string, string], undefined>,
 }
 export declare const idlService: IDL.ServiceClass;
 export declare const idlInitArgs: IDL.Type[];

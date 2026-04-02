@@ -40,6 +40,12 @@ export interface JoinConfig {
   rightKey: string;
 }
 
+export interface FieldSelectionEntry {
+  originalName: string;
+  alias: string;
+  selected: boolean;
+}
+
 export interface DatasetState {
   id: bigint;
   datasetType: DatasetType;
@@ -48,6 +54,10 @@ export interface DatasetState {
   selectedFields: string[];
   outputFormat?: OutputFormat;
   mockDataMap: Record<string, MockDataResult>; // connectionId -> MockData
+  csvHeadersMap: Record<string, string[]>; // connectionId -> CSV headers
+  fullDataMap: Record<string, MockDataResult>; // connectionId -> full CSV data
+  metadataMap: Record<string, FieldMetadata[]>; // connectionId -> metadata
+  fieldSelectionMap?: Record<string, FieldSelectionEntry[]>; // connectionId -> entries
 }
 
 export interface ComparisonResult {
@@ -73,4 +83,12 @@ export interface TestCase {
   sourceValue: string;
   targetValue: string;
   status: "Pass" | "Fail";
+}
+
+export interface FieldMetadata {
+  originalName: string;
+  mappedName: string;
+  originalType: string;
+  mappedType: string;
+  format?: string;
 }
